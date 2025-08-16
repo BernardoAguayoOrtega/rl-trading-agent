@@ -9,7 +9,7 @@ Phase 1: Environment Setup & Integration
 
 [x] Install Dependencies
 
-[ ] Run pip install gymnasium stable-baselines3 pandas-ta numpy pandas.
+[x] Run pip install gymnasium stable-baselines3 pandas-ta numpy pandas.
 
 [ ] Build the Environment Wrapper (StrategyEnv.py)
 
