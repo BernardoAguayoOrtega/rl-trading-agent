@@ -1,7 +1,7 @@
 Phase 1: Environment Setup & Integration
-[ ] Create Project Structure
+[x] Create Project Structure
 
-[ ] Initialize the main project directory.
+[x] Initialize the main project directory.
 
 [ ] Create a framework subdirectory and move your existing backtesting and validation scripts into it.
 
