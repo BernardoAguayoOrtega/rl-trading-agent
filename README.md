@@ -3,11 +3,11 @@ Phase 1: Environment Setup & Integration
 
 [x] Initialize the main project directory.
 
-[ ] Create a framework subdirectory and move your existing backtesting and validation scripts into it.
+[x] Create a framework subdirectory and move your existing backtesting and validation scripts into it.
 
-[ ] Create an rl_agent subdirectory for all new code.
+[x] Create an rl_agent subdirectory for all new code.
 
-[ ] Install Dependencies
+[x] Install Dependencies
 
 [ ] Run pip install gymnasium stable-baselines3 pandas-ta numpy pandas.
 
