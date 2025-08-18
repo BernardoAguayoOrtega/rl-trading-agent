@@ -14,7 +14,13 @@ class StrategyEnv(gym.Env):
         
         # Store the historical price data
         self.df = df.copy()
-        self.original_df = df.copy() 
+        self.original_df = df.copy()
+        
+        # Ensure index is named 'Date' for trading framework compatibility
+        if self.df.index.name != 'Date':
+            self.df.index.name = 'Date'
+        if self.original_df.index.name != 'Date':
+            self.original_df.index.name = 'Date'
         
         # Replace the current action_space with this more structured one
         self.action_space = spaces.Dict({
@@ -176,68 +182,35 @@ class StrategyEnv(gym.Env):
     def step(self, action):
         """
         Executes one time step within the environment.
+        The agent chooses which indicators to use and how to combine them dynamically.
         """
         self.metrics['episode_step'] += 1
-        terminated = False
-        
-        # --- 1. APPLY ACTION: Update strategy parameters based on agent's action ---
-        # The agent's action is a dictionary with new parameter values.
-        # We'll update our internal strategy_params dictionary.
-        param_keys = list(self.strategy_params.keys())
-        
-        # Unpack actions and update the corresponding parameters
-        ma_action_values = action['overlap_actions']
-        # ... (similar unpacking for other action groups) ...
-
-        # Note: A more complete implementation would map each action value
-        # to a specific parameter. For now, we'll assume a direct mapping.
-        # This part will become more complex as you refine the agent's control.
-        self.strategy_params['fast_sma'] = ma_action_values[0]
-        self.strategy_params['slow_sma'] = ma_action_values[1]
-        
-        # --- 2. RUN BACKTEST: Execute your original trading framework ---
-        # For simplicity, we'll make every step a backtest.
-        terminated = True 
+        terminated = True  # Each step is a complete backtest episode
         
         try:
-            # Re-compute indicators with new parameters
-            self._compute_all_indicators()
-
-            # Create a clean copy of the data for the backtest
-            data_copy = self.df.copy()
-
-            # A simplified example of how you would call your framework:
-            # This part needs to be adapted to create a general-purpose signal generator
-            # based on the agent's chosen parameters.
-            perSma_fast = self.strategy_params['fast_sma']
-            perSma_slow = self.strategy_params['slow_sma']
+            # --- 1. DECODE AGENT ACTION INTO DYNAMIC STRATEGY CONFIG ---
+            strategy_config = self._decode_agent_action(action)
             
-            # This is a placeholder for a much more complex signal generation logic
-            # that the agent will eventually learn to create.
-            data_copy['signal'] = np.where(data_copy[f'SMA_{perSma_fast}'] > data_copy[f'SMA_{perSma_slow}'], 'P', '')
-            data_copy['signal'] = np.where(data_copy[f'SMA_{perSma_fast}'] < data_copy[f'SMA_{perSma_slow}'], 'cP', data_copy.signal)
-            data_copy['position'] = data_copy.signal.shift()
+            # --- 2. RUN DYNAMIC BACKTEST ---
+            from trading_framework_dynamic import DynamicTradingSystem
             
-            # Call your existing framework functions for backtesting and performance calculation
-            from trading_framework import damePosition, dameSalidaVelas, dameSalidaPnl, calculaCurvas, backSistemaList
+            trading_system = DynamicTradingSystem()
+            data_processed, results = trading_system.backtest_strategy(self.df.copy(), strategy_config)
             
-            data_copy = damePosition(data_copy)
-            data_copy = dameSalidaVelas(data_copy, 0) # No candle exit limit
-            data_copy = dameSalidaPnl(data_copy, 'long', 0, 0, 0, 0) # No TP/SL
-            data_copy = calculaCurvas(data_copy, size=1)
-            results = backSistemaList(data_copy)
+            # --- 3. UPDATE PERFORMANCE METRICS ---
+            self._update_performance_metrics(results)
 
-            # --- 3. CALCULATE REWARD ---
+            # --- 4. CALCULATE REWARD ---
             reward = self._calculate_reward(results)
             
-            # --- 4. UPDATE OBSERVATION with the new results ---
-            # This would involve creating the full observation dictionary as in reset()
-            # but with the new performance metrics from the 'results' list.
-            observation = self.reset(seed=None)[0] # Placeholder: reset for next episode
+            # --- 5. UPDATE OBSERVATION ---
+            observation = self._create_observation_from_results(data_processed, results)
             
         except Exception as e:
-            reward = -200  # Penalize heavily if the backtest fails
-            observation = self.reset(seed=None)[0] # Reset on failure
+            print(f"Backtest failed: {e}")
+            reward = -200  # Heavy penalty for failed backtests
+            observation = self._create_default_observation()
+            self.metrics['consecutive_failures'] += 1
 
         return observation, reward, terminated, False, {}
 
@@ -697,3 +670,450 @@ class StrategyEnv(gym.Env):
                 'sma_fast': 0, 'sma_slow': 0, 'rsi': 50,
                 'macd': 0, 'macd_signal': 0, 'atr': 0, 'adx': 0
             }
+    
+    # === DYNAMIC STRATEGY METHODS ===
+    
+    def _decode_agent_action(self, action):
+        """
+        Convert agent action space into dynamic strategy configuration.
+        The agent chooses indicators and rules dynamically.
+        """
+        # Decode which indicators to use based on action values
+        overlap_actions = action['overlap_actions']
+        momentum_actions = action['momentum_actions'] 
+        volatility_actions = action['volatility_actions']
+        trend_actions = action['trend_actions']
+        cycle_actions = action['cycle_actions']
+        
+        # Build indicator configuration dynamically
+        indicator_config = {}
+        
+        # Moving Averages (agent chooses periods)
+        if overlap_actions[0] != overlap_actions[1]:  # Use MA crossover if periods are different
+            indicator_config['sma'] = [int(overlap_actions[0]), int(overlap_actions[1])]
+        
+        # Momentum indicators (agent chooses to include)
+        if momentum_actions[0] > 5:  # Threshold to include RSI
+            indicator_config['rsi'] = [int(momentum_actions[0])]
+            
+        if momentum_actions[1] > 5 and momentum_actions[2] > 5:  # Include MACD
+            indicator_config['macd'] = {
+                'fast': int(momentum_actions[1]),
+                'slow': int(momentum_actions[2]), 
+                'signal': int(momentum_actions[3])
+            }
+        
+        # Volatility indicators
+        if volatility_actions[0] > 0.5:  # Include Bollinger Bands
+            indicator_config['bb'] = {
+                'period': 20,
+                'std': float(volatility_actions[0])
+            }
+            
+        if volatility_actions[1] > 0.5:  # Include ATR
+            indicator_config['atr'] = {'period': 14}
+        
+        # Trend indicators
+        if trend_actions[0] > 0.7:  # Include ADX
+            indicator_config['adx'] = {'period': 14}
+        
+        # Build trading rules dynamically based on available indicators
+        entry_conditions = []
+        exit_conditions = []
+        
+        # SMA Crossover rules (if SMA is selected)
+        if 'sma' in indicator_config and len(indicator_config['sma']) == 2:
+            fast_sma, slow_sma = indicator_config['sma']
+            entry_conditions.append({
+                'indicator1': f'SMA_{fast_sma}',
+                'operator': 'crossover',
+                'indicator2': f'SMA_{slow_sma}'
+            })
+            exit_conditions.append({
+                'indicator1': f'SMA_{fast_sma}',
+                'operator': 'crossunder', 
+                'indicator2': f'SMA_{slow_sma}'
+            })
+        
+        # RSI rules (if RSI is selected)
+        if 'rsi' in indicator_config:
+            rsi_period = indicator_config['rsi'][0]
+            # Agent controls RSI thresholds through momentum_actions
+            rsi_oversold = 20 + (momentum_actions[0] % 30)  # Range 20-50
+            rsi_overbought = 70 + (momentum_actions[0] % 25)  # Range 70-95
+            
+            entry_conditions.append({
+                'indicator1': f'RSI_{rsi_period}',
+                'operator': '<',
+                'value': rsi_oversold
+            })
+            exit_conditions.append({
+                'indicator1': f'RSI_{rsi_period}',
+                'operator': '>',
+                'value': rsi_overbought
+            })
+        
+        # MACD rules (if MACD is selected)
+        if 'macd' in indicator_config:
+            macd_config = indicator_config['macd']
+            fast, slow, signal = macd_config['fast'], macd_config['slow'], macd_config['signal']
+            
+            entry_conditions.append({
+                'indicator1': f'MACD_{fast}_{slow}_{signal}',
+                'operator': 'crossover',
+                'indicator2': f'MACDs_{fast}_{slow}_{signal}'
+            })
+            exit_conditions.append({
+                'indicator1': f'MACD_{fast}_{slow}_{signal}',
+                'operator': 'crossunder',
+                'indicator2': f'MACDs_{fast}_{slow}_{signal}'
+            })
+        
+        # Bollinger Bands rules (if BB is selected)
+        if 'bb' in indicator_config:
+            entry_conditions.append({
+                'indicator1': 'Close',
+                'operator': '<',
+                'indicator2': 'BBL_20_2.0'  # Bollinger Lower Band
+            })
+            exit_conditions.append({
+                'indicator1': 'Close',
+                'operator': '>',
+                'indicator2': 'BBU_20_2.0'  # Bollinger Upper Band
+            })
+        
+        # If no specific rules were created, use simple price momentum
+        if not entry_conditions:
+            entry_conditions.append({
+                'indicator1': 'Close',
+                'operator': '>',
+                'indicator2': 'Open'
+            })
+            exit_conditions.append({
+                'indicator1': 'Close',
+                'operator': '<',
+                'indicator2': 'Open'
+            })
+        
+        # Construct final strategy configuration
+        strategy_config = {
+            'indicators': indicator_config,
+            'rules': {
+                'entry_conditions': entry_conditions,
+                'exit_conditions': exit_conditions
+            },
+            'direction': 'long',
+            'candle_limit': 0,
+            'take_profit': 0,
+            'stop_loss': 0,
+            'commission': 0,
+            'slippage': 0,
+            'position_size': 1
+        }
+        
+        return strategy_config
+    
+    def _create_observation_from_results(self, data_processed, results):
+        """
+        Create observation dictionary from backtest results
+        """
+        try:
+            # Update current indicator values from processed data
+            current_indicators = {}
+            
+            # Extract latest indicator values from processed data
+            if not data_processed.empty:
+                for col in data_processed.columns:
+                    if any(indicator in col for indicator in ['SMA', 'RSI', 'MACD', 'ATR', 'ADX', 'BB', 'STOCH']):
+                        latest_value = data_processed[col].iloc[-1] if not data_processed[col].isna().all() else 0
+                        current_indicators[col] = latest_value
+            
+            # Helper function to safely get historical data
+            def get_history_safe(data, col, length, default_val=0.0):
+                if col in data.columns and len(data) >= length:
+                    return data[col].tail(length).fillna(default_val).values.astype(np.float32)
+                return np.full(length, default_val, dtype=np.float32)
+            
+            # Build observation dictionary
+            observation = {
+                # Strategy parameters (current values from last action)
+                'ma_params': np.array(list(self.strategy_params.values())[:16], dtype=np.int32),
+                'oscillator_params': np.array(list(self.strategy_params.values())[16:24], dtype=np.int32),
+                'volatility_params': np.array(list(self.strategy_params.values())[24:30], dtype=np.float32),
+                'volume_params': np.array(list(self.strategy_params.values())[30:34], dtype=np.int32),
+                'trend_params': np.array(list(self.strategy_params.values())[34:38], dtype=np.float32),
+                
+                # Current indicator values (normalized)
+                'sma_fast': np.array([current_indicators.get('SMA_10', 0.0)], dtype=np.float32),
+                'sma_slow': np.array([current_indicators.get('SMA_20', 0.0)], dtype=np.float32),
+                'ema_fast': np.array([current_indicators.get('EMA_12', 0.0)], dtype=np.float32),
+                'ema_slow': np.array([current_indicators.get('EMA_26', 0.0)], dtype=np.float32),
+                'rsi': np.array([current_indicators.get('RSI_14', 50.0)], dtype=np.float32),
+                'macd': np.array([current_indicators.get('MACD_12_26_9', 0.0)], dtype=np.float32),
+                'macd_signal': np.array([current_indicators.get('MACDs_12_26_9', 0.0)], dtype=np.float32),
+                'stoch_k': np.array([current_indicators.get('STOCHk_14_3_3', 50.0)], dtype=np.float32),
+                'stoch_d': np.array([current_indicators.get('STOCHd_14_3_3', 50.0)], dtype=np.float32),
+                'bb_upper': np.array([current_indicators.get('BBU_20_2.0', 0.0)], dtype=np.float32),
+                'bb_middle': np.array([current_indicators.get('BBM_20_2.0', 0.0)], dtype=np.float32),
+                'bb_lower': np.array([current_indicators.get('BBL_20_2.0', 0.0)], dtype=np.float32),
+                'atr': np.array([current_indicators.get('ATR_14', 0.0)], dtype=np.float32),
+                'adx': np.array([current_indicators.get('ADX_14', 0.0)], dtype=np.float32),
+                'volume_sma': np.array([current_indicators.get('Volume_SMA', 0.0)], dtype=np.float32),
+                'obv': np.array([current_indicators.get('OBV', 0.0)], dtype=np.float32),
+                
+                # Performance metrics from current backtest
+                'current_cagr': np.array([self.performance_metrics.get('cagr', 0.0)], dtype=np.float32),
+                'current_max_drawdown': np.array([self.performance_metrics.get('max_drawdown', 0.0)], dtype=np.float32),
+                'current_sharpe_ratio': np.array([self.performance_metrics.get('sharpe_ratio', 0.0)], dtype=np.float32),
+                'current_win_rate': np.array([self.performance_metrics.get('win_rate', 0.0)], dtype=np.float32),
+                'current_trades': np.array([self.performance_metrics.get('trades', 0)], dtype=np.int32),
+                'current_profit_factor': np.array([self.performance_metrics.get('profit_factor', 0.0)], dtype=np.float32),
+                'current_expectancy': np.array([self.performance_metrics.get('expectancy', 0.0)], dtype=np.float32),
+                
+                # Environment state
+                'total_backtests': np.array([self.metrics['total_backtests']], dtype=np.int32),
+                'consecutive_failures': np.array([self.metrics['consecutive_failures']], dtype=np.int32),
+                'episode_step': np.array([self.metrics['episode_step']], dtype=np.int32),
+                
+                # Market regime indicators
+                'trend_strength': np.array([self._calculate_trend_strength(data_processed)], dtype=np.float32),
+                'volatility_regime': np.array([self._calculate_volatility_regime(data_processed)], dtype=np.float32),
+                'momentum_regime': np.array([self._calculate_momentum_regime(data_processed)], dtype=np.float32),
+                'volume_regime': np.array([self._calculate_volume_regime(data_processed)], dtype=np.float32),
+                
+                # Historical data (normalized)
+                'price_trend': get_history_safe(data_processed, 'Close', 50),
+                'volume_trend': get_history_safe(data_processed, 'Volume', 50) if 'Volume' in data_processed.columns else np.zeros(50, dtype=np.float32),
+                'rsi_history': get_history_safe(data_processed, 'RSI_14', 20, 50.0),
+                'macd_history': get_history_safe(data_processed, 'MACD_12_26_9', 20),
+                
+                # Indicator relationships
+                'ma_crossover': np.array([self._calculate_ma_crossover(data_processed)], dtype=np.float32),
+                'macd_crossover': np.array([self._calculate_macd_crossover(data_processed)], dtype=np.float32),
+                'bb_position': np.array([self._calculate_bb_position(data_processed)], dtype=np.float32),
+                'rsi_position': np.array([self._calculate_rsi_position(data_processed)], dtype=np.float32),
+                
+                # Candlestick patterns (simplified)
+                'recent_doji': np.zeros(5, dtype=np.float32),
+                'recent_engulfing': np.zeros(5, dtype=np.float32),
+                'recent_hammer': np.zeros(5, dtype=np.float32)
+            }
+            
+            return observation
+            
+        except Exception as e:
+            print(f"Error creating observation: {e}")
+            return self._create_default_observation()
+    
+    def _create_default_observation(self):
+        """
+        Create default observation when backtest fails
+        """
+        return {
+            'ma_params': np.zeros(16, dtype=np.int32),
+            'oscillator_params': np.zeros(8, dtype=np.int32),
+            'volatility_params': np.zeros(6, dtype=np.float32),
+            'volume_params': np.zeros(4, dtype=np.int32),
+            'trend_params': np.zeros(4, dtype=np.float32),
+            
+            'sma_fast': np.array([0.0], dtype=np.float32),
+            'sma_slow': np.array([0.0], dtype=np.float32),
+            'ema_fast': np.array([0.0], dtype=np.float32),
+            'ema_slow': np.array([0.0], dtype=np.float32),
+            'rsi': np.array([50.0], dtype=np.float32),
+            'macd': np.array([0.0], dtype=np.float32),
+            'macd_signal': np.array([0.0], dtype=np.float32),
+            'stoch_k': np.array([50.0], dtype=np.float32),
+            'stoch_d': np.array([50.0], dtype=np.float32),
+            'bb_upper': np.array([0.0], dtype=np.float32),
+            'bb_middle': np.array([0.0], dtype=np.float32),
+            'bb_lower': np.array([0.0], dtype=np.float32),
+            'atr': np.array([0.0], dtype=np.float32),
+            'adx': np.array([0.0], dtype=np.float32),
+            'volume_sma': np.array([0.0], dtype=np.float32),
+            'obv': np.array([0.0], dtype=np.float32),
+            
+            'current_cagr': np.array([0.0], dtype=np.float32),
+            'current_max_drawdown': np.array([0.0], dtype=np.float32),
+            'current_sharpe_ratio': np.array([0.0], dtype=np.float32),
+            'current_win_rate': np.array([0.0], dtype=np.float32),
+            'current_trades': np.array([0], dtype=np.int32),
+            'current_profit_factor': np.array([0.0], dtype=np.float32),
+            'current_expectancy': np.array([0.0], dtype=np.float32),
+            
+            'total_backtests': np.array([self.metrics['total_backtests']], dtype=np.int32),
+            'consecutive_failures': np.array([self.metrics['consecutive_failures']], dtype=np.int32),
+            'episode_step': np.array([self.metrics['episode_step']], dtype=np.int32),
+            
+            'trend_strength': np.array([0.0], dtype=np.float32),
+            'volatility_regime': np.array([0.0], dtype=np.float32),
+            'momentum_regime': np.array([0.0], dtype=np.float32),
+            'volume_regime': np.array([0.0], dtype=np.float32),
+            
+            'price_trend': np.zeros(50, dtype=np.float32),
+            'volume_trend': np.zeros(50, dtype=np.float32),
+            'rsi_history': np.full(20, 50.0, dtype=np.float32),
+            'macd_history': np.zeros(20, dtype=np.float32),
+            
+            'ma_crossover': np.array([0.0], dtype=np.float32),
+            'macd_crossover': np.array([0.0], dtype=np.float32),
+            'bb_position': np.array([0.5], dtype=np.float32),
+            'rsi_position': np.array([0.5], dtype=np.float32),
+            
+            'recent_doji': np.zeros(5, dtype=np.float32),
+            'recent_engulfing': np.zeros(5, dtype=np.float32),
+            'recent_hammer': np.zeros(5, dtype=np.float32)
+        }
+    
+    # === MARKET REGIME CALCULATION METHODS ===
+    
+    def _calculate_trend_strength(self, data):
+        """Calculate overall trend strength from ADX and price movement"""
+        try:
+            if 'ADX_14' in data.columns and len(data) > 0:
+                adx = data['ADX_14'].iloc[-1]
+                return min(adx / 100.0, 1.0)  # Normalize to 0-1
+            return 0.0
+        except:
+            return 0.0
+    
+    def _calculate_volatility_regime(self, data):
+        """Calculate current volatility regime from ATR"""
+        try:
+            if 'ATR_14' in data.columns and len(data) > 20:
+                current_atr = data['ATR_14'].iloc[-1]
+                avg_atr = data['ATR_14'].tail(20).mean()
+                return min(current_atr / avg_atr, 2.0) / 2.0  # Normalize to 0-1
+            return 0.0
+        except:
+            return 0.0
+    
+    def _calculate_momentum_regime(self, data):
+        """Calculate momentum regime from RSI and price changes"""
+        try:
+            if 'RSI_14' in data.columns and len(data) > 0:
+                rsi = data['RSI_14'].iloc[-1]
+                return (rsi - 50.0) / 50.0  # Normalize to -1 to 1
+            return 0.0
+        except:
+            return 0.0
+    
+    def _calculate_volume_regime(self, data):
+        """Calculate volume regime from volume indicators"""
+        try:
+            if 'Volume' in data.columns and len(data) > 20:
+                current_vol = data['Volume'].iloc[-1]
+                avg_vol = data['Volume'].tail(20).mean()
+                return min(current_vol / avg_vol, 2.0) / 2.0  # Normalize to 0-1
+            return 0.0
+        except:
+            return 0.0
+    
+    # === INDICATOR RELATIONSHIP CALCULATION METHODS ===
+    
+    def _calculate_ma_crossover(self, data):
+        """Calculate moving average crossover signal"""
+        try:
+            sma_cols = [col for col in data.columns if col.startswith('SMA_')]
+            if len(sma_cols) >= 2 and len(data) >= 2:
+                fast_col = min(sma_cols, key=lambda x: int(x.split('_')[1]))
+                slow_col = max(sma_cols, key=lambda x: int(x.split('_')[1]))
+                
+                current_diff = data[fast_col].iloc[-1] - data[slow_col].iloc[-1]
+                prev_diff = data[fast_col].iloc[-2] - data[slow_col].iloc[-2]
+                
+                if current_diff > 0 and prev_diff <= 0:
+                    return 1.0  # Golden cross
+                elif current_diff < 0 and prev_diff >= 0:
+                    return -1.0  # Death cross
+                else:
+                    return current_diff / data[slow_col].iloc[-1] * 10  # Normalized difference
+            return 0.0
+        except:
+            return 0.0
+    
+    def _calculate_macd_crossover(self, data):
+        """Calculate MACD crossover signal"""
+        try:
+            macd_cols = [col for col in data.columns if 'MACD_' in col and not col.startswith('MACDs')]
+            signal_cols = [col for col in data.columns if col.startswith('MACDs_')]
+            
+            if macd_cols and signal_cols and len(data) >= 2:
+                macd_col = macd_cols[0]
+                signal_col = signal_cols[0]
+                
+                current_diff = data[macd_col].iloc[-1] - data[signal_col].iloc[-1]
+                prev_diff = data[macd_col].iloc[-2] - data[signal_col].iloc[-2]
+                
+                if current_diff > 0 and prev_diff <= 0:
+                    return 1.0  # Bullish crossover
+                elif current_diff < 0 and prev_diff >= 0:
+                    return -1.0  # Bearish crossover
+                else:
+                    return np.tanh(current_diff)  # Normalized difference
+            return 0.0
+        except:
+            return 0.0
+    
+    def _calculate_bb_position(self, data):
+        """Calculate price position within Bollinger Bands"""
+        try:
+            if all(col in data.columns for col in ['BBU_20_2.0', 'BBL_20_2.0', 'Close']) and len(data) > 0:
+                close = data['Close'].iloc[-1]
+                upper = data['BBU_20_2.0'].iloc[-1]
+                lower = data['BBL_20_2.0'].iloc[-1]
+                
+                if upper > lower:
+                    return (close - lower) / (upper - lower)  # 0 = at lower band, 1 = at upper band
+                else:
+                    return 0.5
+            return 0.5
+        except:
+            return 0.5
+    
+    def _calculate_rsi_position(self, data):
+        """Calculate RSI position (normalized)"""
+        try:
+            if 'RSI_14' in data.columns and len(data) > 0:
+                rsi = data['RSI_14'].iloc[-1]
+                return rsi / 100.0  # Normalize to 0-1
+            return 0.5
+        except:
+            return 0.5
+    
+    def _update_performance_metrics(self, results):
+        """
+        Updates internal performance metrics from backtest results.
+        """
+        try:
+            # Extract metrics from backSistemaList output
+            self.performance_metrics['trades'] = results[2] if len(results) > 2 else 0
+            self.performance_metrics['cagr'] = results[12] if len(results) > 12 else 0.0
+            self.performance_metrics['max_drawdown'] = abs(results[21]) if len(results) > 21 else 0.0
+            self.performance_metrics['profit_factor'] = results[18] if len(results) > 18 else 0.0
+            self.performance_metrics['win_rate'] = results[5] if len(results) > 5 else 0.0
+            self.performance_metrics['avg_trade'] = results[6] if len(results) > 6 else 0.0
+            self.performance_metrics['avg_win'] = results[7] if len(results) > 7 else 0.0
+            self.performance_metrics['avg_loss'] = results[8] if len(results) > 8 else 0.0
+            
+            # Calculate Sharpe ratio approximation
+            if self.performance_metrics['max_drawdown'] > 0:
+                self.performance_metrics['sharpe_ratio'] = self.performance_metrics['cagr'] / self.performance_metrics['max_drawdown']
+            else:
+                self.performance_metrics['sharpe_ratio'] = 0.0
+            
+            # Update environment metrics
+            self.metrics['total_backtests'] += 1
+            if self.performance_metrics['cagr'] > self.metrics['best_cagr']:
+                self.metrics['best_cagr'] = self.performance_metrics['cagr']
+            if self.performance_metrics['max_drawdown'] < self.metrics['best_drawdown']:
+                self.metrics['best_drawdown'] = self.performance_metrics['max_drawdown']
+                
+        except (IndexError, TypeError) as e:
+            print(f"Warning: Could not update performance metrics: {e}")
+            # Reset to default values on error
+            for key in self.performance_metrics:
+                if key in ['trades']:
+                    self.performance_metrics[key] = 0
+                else:
+                    self.performance_metrics[key] = 0.0
