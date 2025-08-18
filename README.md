@@ -41,34 +41,48 @@ Phase 2: Defining the RL Logic & Core Components
 [x] Ensure it returns the initial observation.
 
 Phase 3: Training, Stress-Testing & Final Evaluation
-[ ] Build the GARCH Stress-Test Module (garch_tester.py)
+[x] Create the Configuration Module (config.py)
 
-[ ] Create a standalone function run_garch_test(strategy_definition).
+[x] Centralize all project configurations including paths, model parameters, and trading settings.
 
-[ ] This function will fit a GARCH model to real data, generate 100+ synthetic price series, and backtest the provided strategy on each one.
+[x] Define RISK_CONFIG with parameters like risk-free rate, drawdown limits, and risk parameters.
 
-[ ] The function should return a final robustness score (e.g., the percentage of profitable simulations).
+[x] Configure PLOT_CONFIG for consistent visualization styles and parameters.
 
-[ ] Create the Training Script (train.py)
+[x] Create the Training Script (train.py)
 
-[ ] Instantiate your StrategyEnv.
+[x] Instantiate your StrategyEnv with appropriate wrappers (VecEnv, VecNormalize).
 
-[ ] Choose and initialize a model from stable-baselines3 (e.g., model = PPO("MlpPolicy", env)).
+[x] Configure and initialize PPO model from stable-baselines3 with appropriate hyperparameters.
 
-[ ] Run the training loop with model.learn(total_timesteps=100000).
+[x] Implement comprehensive callbacks system for evaluation, early stopping, and checkpointing.
 
-[ ] Save the trained agent's weights using model.save().
+[x] Set up robust logging and experiment tracking (optional Weights & Biases integration).
 
-[ ] Create the Final Evaluation Script (evaluate.py)
+[x] Create the Final Evaluation Script (evaluate.py)
 
-[ ] Load the saved agent.
+[x] Implement the TradingMetricsCalculator for comprehensive performance metrics.
 
-[ ] Use the agent to predict its single, best-found strategy.
+[x] Create BenchmarkStrategies for comparing against baseline trading approaches.
 
-[ ] Execute the Validation Gauntlet:
+[x] Build StrategyEvaluator with model loading, backtesting, and statistical significance testing.
 
-[ ] Stage 1: Test the strategy on your real, unseen Out-of-Sample (OS) data.
+[x] Add ResultsVisualizer for generating plots and comprehensive HTML reports.
 
-[ ] Stage 2: If Stage 1 is successful, run the strategy through the GARCH Stress-Test module.
+[x] Build the GARCH Stress-Test Module (garch_tester.py)
 
-[ ] Print a final report detailing the strategy's rules and its performance across all validation stages.****
+[x] Implement GARCHModel class with parameter fitting and return simulation capabilities.
+
+[x] Create StressScenario to define different market volatility regimes for testing.
+
+[x] Build GARCHStressTester with Monte Carlo simulation and strategy evaluation across scenarios.
+
+[x] Add StressTestVisualizer for creating comparative visualizations and stress test reports.
+
+[x] Update Documentation
+
+[x] Document Phase 3 components in the README.
+
+[x] Add usage examples and command-line options for each script.
+
+[x] Ensure code is properly commented for maintainability.
