@@ -15,7 +15,7 @@ Phase 1: Environment Setup & Integration
 
 [x] Create the StrategyEnv.py file with a class StrategyEnv that inherits from gymnasium.Env.
 
-[ ] Implement the __init__ method to load your historical data and define the action_space (e.g., Discrete(20) for 20 possible actions) and observation_space (e.g., Dict to describe the current strategy).
+[x] Implement the __init__ method to load your historical data and define the action_space (e.g., Discrete(20) for 20 possible actions) and observation_space (e.g., Dict to describe the current strategy).
 
 Phase 2: Defining the RL Logic & Core Components
 [ ] Implement the step(action) Method
