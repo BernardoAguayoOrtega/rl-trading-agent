@@ -176,8 +176,74 @@ class StrategyEnv(gym.Env):
     def step(self, action):
         pass
 
+# Add this method inside your StrategyEnv class
     def reset(self, seed=None, options=None):
-        pass
+        """
+        Resets the environment to an initial state for a new episode.
+        """
+        super().reset(seed=seed)
+
+        # Reset episode-specific metrics
+        self.metrics['episode_step'] = 0
+        self.metrics['consecutive_failures'] = 0
+        
+        # --- Create the Initial Observation ---
+        # This dictionary MUST match the structure of self.observation_space
+        
+        # Start with default strategy parameters
+        initial_params = self.strategy_params.copy()
+
+        # Helper function to safely get slices of historical data
+        def get_initial_history(key, length, default_val=0.0):
+            if key in self.df.columns and len(self.df) >= length:
+                return self.df[key].iloc[:length].values.astype(np.float32)
+            return np.full(length, default_val, dtype=np.float32)
+
+        observation = {
+            # Strategy parameters are set to their defaults
+            'ma_params': np.array(list(initial_params.values())[:16], dtype=np.int32),
+            'oscillator_params': np.array(list(initial_params.values())[16:24], dtype=np.int32),
+            'volatility_params': np.array(list(initial_params.values())[24:30], dtype=np.float32),
+            'volume_params': np.array(list(initial_params.values())[30:34], dtype=np.int32),
+            'trend_params': np.array(list(initial_params.values())[34:38], dtype=np.float32),
+            
+            # Current indicator values are initialized to 0 or a safe value
+            'sma_fast': np.array([0.0], dtype=np.float32), 'sma_slow': np.array([0.0], dtype=np.float32),
+            'ema_fast': np.array([0.0], dtype=np.float32), 'ema_slow': np.array([0.0], dtype=np.float32),
+            'rsi': np.array([50.0], dtype=np.float32), 'macd': np.array([0.0], dtype=np.float32),
+            'macd_signal': np.array([0.0], dtype=np.float32), 'stoch_k': np.array([50.0], dtype=np.float32),
+            'stoch_d': np.array([50.0], dtype=np.float32), 'bb_upper': np.array([0.0], dtype=np.float32),
+            'bb_middle': np.array([0.0], dtype=np.float32), 'bb_lower': np.array([0.0], dtype=np.float32),
+            'atr': np.array([0.0], dtype=np.float32), 'adx': np.array([0.0], dtype=np.float32),
+            'volume_sma': np.array([0.0], dtype=np.float32), 'obv': np.array([0.0], dtype=np.float32),
+
+            # Performance metrics start at 0
+            'current_cagr': np.array([0.0], dtype=np.float32), 'current_max_drawdown': np.array([0.0], dtype=np.float32),
+            'current_sharpe_ratio': np.array([0.0], dtype=np.float32), 'current_win_rate': np.array([0.0], dtype=np.float32),
+            'current_trades': np.array([0], dtype=np.int32), 'current_profit_factor': np.array([0.0], dtype=np.float32),
+            'current_expectancy': np.array([0.0], dtype=np.float32),
+            
+            # Environment state starts at 0
+            'total_backtests': np.array([self.metrics['total_backtests']], dtype=np.int32),
+            'consecutive_failures': np.array([0], dtype=np.int32),
+            'episode_step': np.array([0], dtype=np.int32),
+            
+            # Market regime and history are taken from the beginning of the dataset
+            'trend_strength': np.array([0.0], dtype=np.float32), 'volatility_regime': np.array([0.0], dtype=np.float32),
+            'momentum_regime': np.array([0.0], dtype=np.float32), 'volume_regime': np.array([0.0], dtype=np.float32),
+            'price_trend': get_initial_history('Close', 50), 'volume_trend': get_initial_history('Volume', 50),
+            'rsi_history': get_initial_history(f"RSI_{self.strategy_params['rsi_period']}", 20, 50.0),
+            'macd_history': get_initial_history(f"MACDh_{self.strategy_params['macd_fast']}_{self.strategy_params['macd_slow']}_{self.strategy_params['macd_signal']}", 20),
+            
+            # Relationships and patterns start at neutral values
+            'ma_crossover': np.array([0.0], dtype=np.float32), 'macd_crossover': np.array([0.0], dtype=np.float32),
+            'bb_position': np.array([0.5], dtype=np.float32), 'rsi_position': np.array([0.5], dtype=np.float32),
+            'recent_doji': np.zeros(5, dtype=np.float32), 'recent_engulfing': np.zeros(5, dtype=np.float32),
+            'recent_hammer': np.zeros(5, dtype=np.float32)
+        }
+        
+        # Return the initial observation and an empty info dictionary
+        return observation, {}
 
     def render(self, mode='human'):
         pass
