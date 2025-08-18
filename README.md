@@ -18,27 +18,27 @@ Phase 1: Environment Setup & Integration
 [x] Implement the __init__ method to load your historical data and define the action_space (e.g., Discrete(20) for 20 possible actions) and observation_space (e.g., Dict to describe the current strategy).
 
 Phase 2: Defining the RL Logic & Core Components
-[ ] Implement the step(action) Method
+[x] Implement the step(action) Method
 
-[ ] Translate the agent's action (an integer) into a specific modification of the current trading strategy.
+[x] Translate the agent's action (an integer) into a specific modification of the current trading strategy.
 
-[ ] When the "run_backtest" action is triggered, call your existing framework functions (dameSistema, calculaCurvas, etc.).
+[x] When the "run_backtest" action is triggered, call your existing framework functions (dameSistema, calculaCurvas, etc.).
 
-[ ] Return the standard (observation, reward, terminated, truncated, info) tuple.
+[x] Return the standard (observation, reward, terminated, truncated, info) tuple.
 
-[ ] Design the _calculate_reward() Function
+[x] Design the _calculate_reward() Function
 
-[ ] Create a specific, non-trivial reward function that balances risk and return.
+[x] Create a specific, non-trivial reward function that balances risk and return.
 
-[ ] Implement a formula (e.g., reward = (CAGR / Max_Drawdown)) inside the environment.
+[x] Implement a formula (e.g., reward = (CAGR / Max_Drawdown)) inside the environment.
 
-[ ] Add heavy negative penalties for bad outcomes (e.g., drawdown > 30%, fewer than 10 trades).
+[x] Add heavy negative penalties for bad outcomes (e.g., drawdown > 30%, fewer than 10 trades).
 
-[ ] Implement the reset() Method
+[x] Implement the reset() Method
 
-[ ] Code the reset() function to clear the current strategy and prepare for a new episode.
+[x] Code the reset() function to clear the current strategy and prepare for a new episode.
 
-[ ] Ensure it returns the initial observation.
+[x] Ensure it returns the initial observation.
 
 Phase 3: Training, Stress-Testing & Final Evaluation
 [ ] Build the GARCH Stress-Test Module (garch_tester.py)

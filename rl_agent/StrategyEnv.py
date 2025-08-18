@@ -241,7 +241,6 @@ class StrategyEnv(gym.Env):
 
         return observation, reward, terminated, False, {}
 
-
     def _calculate_reward(self, results):
         """
         Calculates a reward score based on the backtest results list.
@@ -267,7 +266,6 @@ class StrategyEnv(gym.Env):
         except (IndexError, TypeError, ZeroDivisionError):
             return -200.0
 
-# Add this method inside your StrategyEnv class
     def reset(self, seed=None, options=None):
         """
         Resets the environment to an initial state for a new episode.
@@ -337,7 +335,365 @@ class StrategyEnv(gym.Env):
         return observation, {}
 
     def render(self, mode='human'):
-        pass
+        """
+        Render the environment for visualization
+        
+        Args:
+            mode (str): Rendering mode
+                - 'human': Display in a matplotlib window
+                - 'rgb_array': Return image array
+                - 'ansi': Print text representation
+        
+        Returns:
+            None or rgb array depending on mode
+        """
+        if mode == 'ansi':
+            # Text-based rendering
+            self._render_text()
+        elif mode in ['human', 'rgb_array']:
+            # Graphical rendering
+            return self._render_plot(mode)
+        else:
+            raise ValueError(f"Unsupported render mode: {mode}")
+    
+    def _render_text(self):
+        """Render environment state as text"""
+        print("\n" + "="*60)
+        print(f"STRATEGY ENVIRONMENT - Episode Step: {self.metrics['episode_step']}")
+        print("="*60)
+        
+        # Current strategy parameters
+        print("\nCURRENT STRATEGY PARAMETERS:")
+        print(f"  Fast SMA: {self.strategy_params['fast_sma']}")
+        print(f"  Slow SMA: {self.strategy_params['slow_sma']}")
+        print(f"  RSI Period: {self.strategy_params['rsi_period']}")
+        print(f"  MACD: ({self.strategy_params['macd_fast']}, {self.strategy_params['macd_slow']}, {self.strategy_params['macd_signal']})")
+        
+        # Current indicator values
+        print("\nCURRENT INDICATORS:")
+        if hasattr(self, 'current_indicators'):
+            for key, value in self.current_indicators.items():
+                print(f"  {key.upper()}: {value:.4f}")
+        
+        # Performance metrics
+        print("\nPERFORMANCE METRICS:")
+        for key, value in self.performance_metrics.items():
+            if isinstance(value, (int, float)):
+                print(f"  {key.replace('_', ' ').title()}: {value:.4f}")
+        
+        # Environment metrics
+        print("\nENVIRONMENT STATE:")
+        print(f"  Total Backtests: {self.metrics['total_backtests']}")
+        print(f"  Consecutive Failures: {self.metrics['consecutive_failures']}")
+        print(f"  Best CAGR: {self.metrics['best_cagr']:.4f}")
+        print(f"  Best Drawdown: {self.metrics['best_drawdown']:.4f}")
+        print("="*60)
+    
+    def _render_plot(self, mode='human'):
+        """Render environment state as plots"""
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+            from datetime import datetime
+            
+            # Create figure with subplots
+            fig, axes = plt.subplots(3, 2, figsize=(15, 12))
+            fig.suptitle(f'RL Trading Environment - Step {self.metrics["episode_step"]}', fontsize=16)
+            
+            # Subplot 1: Price and Moving Averages
+            ax1 = axes[0, 0]
+            if len(self.df) > 0:
+                # Plot recent price data (last 100 periods)
+                recent_data = self.df.tail(100).copy()
+                ax1.plot(recent_data.index, recent_data['Close'], 'k-', label='Close', linewidth=1.5)
+                
+                # Plot moving averages if they exist
+                fast_sma_col = f'SMA_{self.strategy_params["fast_sma"]}'
+                slow_sma_col = f'SMA_{self.strategy_params["slow_sma"]}'
+                
+                if fast_sma_col in recent_data.columns:
+                    ax1.plot(recent_data.index, recent_data[fast_sma_col], 'b--', 
+                            label=f'SMA{self.strategy_params["fast_sma"]}', alpha=0.7)
+                
+                if slow_sma_col in recent_data.columns:
+                    ax1.plot(recent_data.index, recent_data[slow_sma_col], 'r--', 
+                            label=f'SMA{self.strategy_params["slow_sma"]}', alpha=0.7)
+                
+                ax1.set_title('Price & Moving Averages')
+                ax1.legend()
+                ax1.grid(True, alpha=0.3)
+            
+            # Subplot 2: RSI
+            ax2 = axes[0, 1]
+            rsi_col = f'RSI_{self.strategy_params["rsi_period"]}'
+            if len(self.df) > 0 and rsi_col in self.df.columns:
+                recent_data = self.df.tail(100).copy()
+                ax2.plot(recent_data.index, recent_data[rsi_col], 'purple', linewidth=1.5)
+                ax2.axhline(y=70, color='r', linestyle='--', alpha=0.7, label='Overbought')
+                ax2.axhline(y=30, color='g', linestyle='--', alpha=0.7, label='Oversold')
+                ax2.set_title(f'RSI ({self.strategy_params["rsi_period"]})')
+                ax2.set_ylim(0, 100)
+                ax2.legend()
+                ax2.grid(True, alpha=0.3)
+            
+            # Subplot 3: MACD
+            ax3 = axes[1, 0]
+            macd_cols = [col for col in self.df.columns if 'MACD' in col]
+            if len(self.df) > 0 and len(macd_cols) > 0:
+                recent_data = self.df.tail(100).copy()
+                for col in macd_cols[:2]:  # Plot first 2 MACD columns
+                    ax3.plot(recent_data.index, recent_data[col], label=col, linewidth=1.5)
+                ax3.axhline(y=0, color='k', linestyle='-', alpha=0.3)
+                ax3.set_title('MACD')
+                ax3.legend()
+                ax3.grid(True, alpha=0.3)
+            
+            # Subplot 4: Performance Metrics Bar Chart
+            ax4 = axes[1, 1]
+            metrics_to_plot = ['cagr', 'max_drawdown', 'sharpe_ratio', 'win_rate']
+            metric_values = [self.performance_metrics.get(m, 0) for m in metrics_to_plot]
+            metric_labels = [m.replace('_', ' ').title() for m in metrics_to_plot]
+            
+            colors = ['green' if v > 0 else 'red' for v in metric_values]
+            bars = ax4.bar(metric_labels, metric_values, color=colors, alpha=0.7)
+            ax4.set_title('Performance Metrics')
+            ax4.tick_params(axis='x', rotation=45)
+            
+            # Add value labels on bars
+            for bar, value in zip(bars, metric_values):
+                height = bar.get_height()
+                ax4.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                        f'{value:.2f}', ha='center', va='bottom', fontsize=9)
+            
+            # Subplot 5: Strategy Parameters
+            ax5 = axes[2, 0]
+            param_names = ['Fast SMA', 'Slow SMA', 'RSI Period', 'MACD Fast', 'MACD Slow']
+            param_values = [
+                self.strategy_params['fast_sma'],
+                self.strategy_params['slow_sma'],
+                self.strategy_params['rsi_period'],
+                self.strategy_params['macd_fast'],
+                self.strategy_params['macd_slow']
+            ]
+            
+            bars = ax5.barh(param_names, param_values, color='skyblue', alpha=0.7)
+            ax5.set_title('Current Strategy Parameters')
+            ax5.set_xlabel('Value')
+            
+            # Add value labels
+            for bar, value in zip(bars, param_values):
+                width = bar.get_width()
+                ax5.text(width + 0.5, bar.get_y() + bar.get_height()/2.,
+                        f'{value}', ha='left', va='center', fontsize=9)
+            
+            # Subplot 6: Environment Stats
+            ax6 = axes[2, 1]
+            env_stats = [
+                ('Total Backtests', self.metrics['total_backtests']),
+                ('Episode Step', self.metrics['episode_step']),
+                ('Consecutive Failures', self.metrics['consecutive_failures']),
+                ('Best CAGR', f"{self.metrics['best_cagr']:.2f}"),
+                ('Best Drawdown', f"{self.metrics['best_drawdown']:.2f}")
+            ]
+            
+            ax6.axis('off')
+            ax6.set_title('Environment Statistics', pad=20)
+            
+            # Create a table-like display
+            table_text = []
+            for stat_name, stat_value in env_stats:
+                table_text.append([stat_name, str(stat_value)])
+            
+            table = ax6.table(cellText=table_text,
+                            colLabels=['Metric', 'Value'],
+                            cellLoc='center',
+                            loc='center',
+                            bbox=[0, 0, 1, 1])
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1, 2)
+            
+            # Style the table
+            for i in range(len(env_stats) + 1):  # +1 for header
+                for j in range(2):
+                    cell = table[(i, j)]
+                    if i == 0:  # Header
+                        cell.set_facecolor('#4CAF50')
+                        cell.set_text_props(weight='bold', color='white')
+                    else:
+                        cell.set_facecolor('#f0f0f0' if i % 2 == 0 else 'white')
+            
+            plt.tight_layout()
+            
+            if mode == 'human':
+                plt.show(block=False)
+                plt.pause(0.1)  # Brief pause to allow display
+                return None
+            elif mode == 'rgb_array':
+                # Convert plot to RGB array
+                fig.canvas.draw()
+                buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                plt.close(fig)
+                return buf
+                
+        except ImportError:
+            print("Warning: matplotlib not available for plotting. Install with: pip install matplotlib")
+            self._render_text()
+        except Exception as e:
+            print(f"Warning: Error in rendering: {e}")
+            self._render_text()
 
     def close(self):
-        pass
+        """
+        Clean up environment resources
+        
+        This method is called when the environment is no longer needed.
+        It should close any open resources, plots, files, etc.
+        """
+        try:
+            # Close any matplotlib figures that might be open
+            import matplotlib.pyplot as plt
+            plt.close('all')
+        except ImportError:
+            pass  # matplotlib not available, nothing to close
+        except Exception as e:
+            print(f"Warning: Error closing matplotlib figures: {e}")
+        
+        # Clear large data structures to free memory
+        if hasattr(self, 'df'):
+            del self.df
+        if hasattr(self, 'original_df'):
+            del self.original_df
+        if hasattr(self, 'indicators'):
+            self.indicators.clear()
+        if hasattr(self, 'current_indicators'):
+            self.current_indicators.clear()
+        
+        # Reset metrics
+        self.performance_metrics.clear()
+        self.metrics.clear()
+        
+        print("Environment closed and resources cleaned up.")
+    
+    def _compute_all_indicators(self):
+        """
+        Compute all technical indicators using pandas-ta and custom functions
+        """
+        # Clear existing indicators
+        self.indicators = {}
+        
+        # Make a copy of the data to avoid modifying original
+        df_work = self.df.copy()
+        
+        try:
+            # === OVERLAP INDICATORS (Moving Averages) ===
+            # Simple Moving Averages
+            for period in [5, 10, 20, 50, 100, 200]:
+                df_work[f'SMA_{period}'] = ta.sma(df_work['Close'], length=period)
+                self.indicators[f'SMA_{period}'] = df_work[f'SMA_{period}'].iloc[-1] if not df_work[f'SMA_{period}'].isna().all() else 0
+            
+            # Exponential Moving Averages
+            for period in [5, 12, 21, 26, 50]:
+                df_work[f'EMA_{period}'] = ta.ema(df_work['Close'], length=period)
+                self.indicators[f'EMA_{period}'] = df_work[f'EMA_{period}'].iloc[-1] if not df_work[f'EMA_{period}'].isna().all() else 0
+            
+            # Bollinger Bands
+            bb = ta.bbands(df_work['Close'], length=self.strategy_params['bb_period'], std=self.strategy_params['bb_std'])
+            if bb is not None:
+                df_work = df_work.join(bb)
+                self.indicators['BB_Upper'] = bb.iloc[-1, 0] if len(bb.columns) > 0 else 0
+                self.indicators['BB_Middle'] = bb.iloc[-1, 1] if len(bb.columns) > 1 else 0  
+                self.indicators['BB_Lower'] = bb.iloc[-1, 2] if len(bb.columns) > 2 else 0
+            
+            # === MOMENTUM INDICATORS ===
+            # RSI
+            for period in [2, 14, 21]:
+                rsi = ta.rsi(df_work['Close'], length=period)
+                if rsi is not None:
+                    df_work[f'RSI_{period}'] = rsi
+                    self.indicators[f'RSI_{period}'] = rsi.iloc[-1] if not rsi.isna().all() else 50
+            
+            # MACD
+            macd = ta.macd(df_work['Close'], 
+                          fast=self.strategy_params['macd_fast'],
+                          slow=self.strategy_params['macd_slow'], 
+                          signal=self.strategy_params['macd_signal'])
+            if macd is not None:
+                df_work = df_work.join(macd)
+                self.indicators['MACD'] = macd.iloc[-1, 0] if len(macd.columns) > 0 else 0
+                self.indicators['MACD_Signal'] = macd.iloc[-1, 2] if len(macd.columns) > 2 else 0
+                self.indicators['MACD_Histogram'] = macd.iloc[-1, 1] if len(macd.columns) > 1 else 0
+            
+            # Stochastic Oscillator
+            stoch = ta.stoch(df_work['High'], df_work['Low'], df_work['Close'], 
+                            k=self.strategy_params['stoch_k'], 
+                            d=self.strategy_params['stoch_d'])
+            if stoch is not None:
+                df_work = df_work.join(stoch)
+                self.indicators['STOCH_K'] = stoch.iloc[-1, 0] if len(stoch.columns) > 0 else 50
+                self.indicators['STOCH_D'] = stoch.iloc[-1, 1] if len(stoch.columns) > 1 else 50
+            
+            # === VOLATILITY INDICATORS ===
+            # Average True Range
+            atr = ta.atr(df_work['High'], df_work['Low'], df_work['Close'], 
+                        length=self.strategy_params['atr_period'])
+            if atr is not None:
+                df_work['ATR'] = atr
+                self.indicators['ATR'] = atr.iloc[-1] if not atr.isna().all() else 0
+            
+            # === TREND INDICATORS ===
+            # ADX (Average Directional Index)
+            adx = ta.adx(df_work['High'], df_work['Low'], df_work['Close'], 
+                        length=self.strategy_params['adx_period'])
+            if adx is not None:
+                df_work = df_work.join(adx)
+                self.indicators['ADX'] = adx.iloc[-1, 0] if len(adx.columns) > 0 else 0
+            
+            # === VOLUME INDICATORS ===
+            if 'Volume' in df_work.columns:
+                # Volume SMA
+                vol_sma = ta.sma(df_work['Volume'], length=self.strategy_params['volume_sma'])
+                if vol_sma is not None:
+                    df_work['Volume_SMA'] = vol_sma
+                    self.indicators['Volume_SMA'] = vol_sma.iloc[-1] if not vol_sma.isna().all() else 0
+                
+                # On Balance Volume
+                obv = ta.obv(df_work['Close'], df_work['Volume'])
+                if obv is not None:
+                    df_work['OBV'] = obv
+                    self.indicators['OBV'] = obv.iloc[-1] if not obv.isna().all() else 0
+            
+            # === CUSTOM INDICATORS FROM FRAMEWORK ===
+            # Use our custom SMA and RSI functions for consistency
+            from trading_framework import ocpSma, ocpRsi
+            
+            # Add SMA periods that match strategy parameters
+            df_work = ocpSma(df_work, self.strategy_params['fast_sma'])
+            df_work = ocpSma(df_work, self.strategy_params['slow_sma'])
+            
+            # Add RSI that matches strategy parameters
+            df_work = ocpRsi(df_work, self.strategy_params['rsi_period'])
+            
+            # Update self.df with computed indicators
+            self.df = df_work.copy()
+            
+            # Store key current values for observation space
+            self.current_indicators = {
+                'sma_fast': self.indicators.get(f'SMA_{self.strategy_params["fast_sma"]}', 0),
+                'sma_slow': self.indicators.get(f'SMA_{self.strategy_params["slow_sma"]}', 0),
+                'rsi': self.indicators.get(f'RSI_{self.strategy_params["rsi_period"]}', 50),
+                'macd': self.indicators.get('MACD', 0),
+                'macd_signal': self.indicators.get('MACD_Signal', 0),
+                'atr': self.indicators.get('ATR', 0),
+                'adx': self.indicators.get('ADX', 0)
+            }
+            
+        except Exception as e:
+            print(f"Warning: Error computing indicators: {e}")
+            # Initialize with default values if computation fails
+            self.indicators = {}
+            self.current_indicators = {
+                'sma_fast': 0, 'sma_slow': 0, 'rsi': 50,
+                'macd': 0, 'macd_signal': 0, 'atr': 0, 'adx': 0
+            }
