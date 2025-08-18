@@ -16,8 +16,14 @@ class StrategyEnv(gym.Env):
         self.df = df.copy()
         self.original_df = df.copy() 
         
-        # Define action space: 20 discrete actions for comprehensive strategy optimization
-        self.action_space = spaces.Discrete(20)
+        # Replace the current action_space with this more structured one
+        self.action_space = spaces.Dict({
+            'overlap_actions': spaces.Box(low=2, high=200, shape=(4,), dtype=np.int32),  # For MA periods
+            'momentum_actions': spaces.Box(low=1, high=100, shape=(4,), dtype=np.int32),  # For momentum indicator periods
+            'volatility_actions': spaces.Box(low=0.1, high=5.0, shape=(3,), dtype=np.float32),  # For volatility parameters
+            'trend_actions': spaces.Box(low=0.5, high=2.0, shape=(2,), dtype=np.float32),  # For trend indicator parameters
+            'cycle_actions': spaces.Box(low=0.1, high=2.0, shape=(2,), dtype=np.float32)  # For cycle indicator parameters
+        })
         
         # All pandas-ta indicators grouped by categories for easy access
         self.ta_categories = {
