@@ -174,7 +174,98 @@ class StrategyEnv(gym.Env):
         }
 
     def step(self, action):
-        pass
+        """
+        Executes one time step within the environment.
+        """
+        self.metrics['episode_step'] += 1
+        terminated = False
+        
+        # --- 1. APPLY ACTION: Update strategy parameters based on agent's action ---
+        # The agent's action is a dictionary with new parameter values.
+        # We'll update our internal strategy_params dictionary.
+        param_keys = list(self.strategy_params.keys())
+        
+        # Unpack actions and update the corresponding parameters
+        ma_action_values = action['overlap_actions']
+        # ... (similar unpacking for other action groups) ...
+
+        # Note: A more complete implementation would map each action value
+        # to a specific parameter. For now, we'll assume a direct mapping.
+        # This part will become more complex as you refine the agent's control.
+        self.strategy_params['fast_sma'] = ma_action_values[0]
+        self.strategy_params['slow_sma'] = ma_action_values[1]
+        
+        # --- 2. RUN BACKTEST: Execute your original trading framework ---
+        # For simplicity, we'll make every step a backtest.
+        terminated = True 
+        
+        try:
+            # Re-compute indicators with new parameters
+            self._compute_all_indicators()
+
+            # Create a clean copy of the data for the backtest
+            data_copy = self.df.copy()
+
+            # A simplified example of how you would call your framework:
+            # This part needs to be adapted to create a general-purpose signal generator
+            # based on the agent's chosen parameters.
+            perSma_fast = self.strategy_params['fast_sma']
+            perSma_slow = self.strategy_params['slow_sma']
+            
+            # This is a placeholder for a much more complex signal generation logic
+            # that the agent will eventually learn to create.
+            data_copy['signal'] = np.where(data_copy[f'SMA_{perSma_fast}'] > data_copy[f'SMA_{perSma_slow}'], 'P', '')
+            data_copy['signal'] = np.where(data_copy[f'SMA_{perSma_fast}'] < data_copy[f'SMA_{perSma_slow}'], 'cP', data_copy.signal)
+            data_copy['position'] = data_copy.signal.shift()
+            
+            # Call your existing framework functions for backtesting and performance calculation
+            from trading_framework import damePosition, dameSalidaVelas, dameSalidaPnl, calculaCurvas, backSistemaList
+            
+            data_copy = damePosition(data_copy)
+            data_copy = dameSalidaVelas(data_copy, 0) # No candle exit limit
+            data_copy = dameSalidaPnl(data_copy, 'long', 0, 0, 0, 0) # No TP/SL
+            data_copy = calculaCurvas(data_copy, size=1)
+            results = backSistemaList(data_copy)
+
+            # --- 3. CALCULATE REWARD ---
+            reward = self._calculate_reward(results)
+            
+            # --- 4. UPDATE OBSERVATION with the new results ---
+            # This would involve creating the full observation dictionary as in reset()
+            # but with the new performance metrics from the 'results' list.
+            observation = self.reset(seed=None)[0] # Placeholder: reset for next episode
+            
+        except Exception as e:
+            reward = -200  # Penalize heavily if the backtest fails
+            observation = self.reset(seed=None)[0] # Reset on failure
+
+        return observation, reward, terminated, False, {}
+
+
+    def _calculate_reward(self, results):
+        """
+        Calculates a reward score based on the backtest results list.
+        """
+        try:
+            # Extract metrics from your backSistemaList's output
+            num_ops = results[2]
+            cagr = results[12]
+            max_dd = abs(results[21])
+            profit_factor = results[18]
+
+            # Rule-based penalties for poor strategies
+            if num_ops < 20 or cagr < 1.0 or max_dd > 80.0:
+                return -100.0
+
+            # The core reward function: Calmar Ratio (CAGR / Max Drawdown)
+            # We add a small bonus for a good profit factor.
+            calmar_ratio = cagr / max_dd if max_dd > 0 else cagr
+            reward = (calmar_ratio * 100) + (profit_factor * 10)
+            
+            return reward
+        
+        except (IndexError, TypeError, ZeroDivisionError):
+            return -200.0
 
 # Add this method inside your StrategyEnv class
     def reset(self, seed=None, options=None):
