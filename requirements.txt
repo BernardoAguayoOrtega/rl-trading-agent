@@ -1,0 +1,10 @@
+pandas
+pandas-ta
+gymnasium
+stable-baselines3
+torch
+optuna
+matplotlib
+seaborn
+scikit-learn
+yfinance
