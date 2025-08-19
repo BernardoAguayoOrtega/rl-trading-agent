@@ -233,7 +233,7 @@ The tests cover:
 
 ## TODO List – Build the System Step by Step (Detailed)
 
-- [ ] **Initialize repository & environment**
+- [x] **Initialize repository & environment**
   - `git init` and create a remote on GitHub.
   - `python -m venv .venv && source .venv/bin/activate`.
   - `pip install -r requirements.txt`.
