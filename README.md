@@ -239,20 +239,20 @@ The tests cover:
   - `pip install -r requirements.txt`.
   - Add a `.gitignore` (venv, __pycache__, *.ipynb_checkpoints, data/*.csv, etc.).
 
-- [ ] **Data Agent**
+- [x] **Data Agent**
   - **Create `data/loader.py`**
-    - Define `load_market_data(ticker: str, start: str, end: str) -> pd.DataFrame`.
+    - Define `load_market_data(ticker: str, start: str, end: str) → pd.DataFrame`.
     - Use `yfinance` as a fallback, and allow CSV loading via a `source` argument.
     - Return a DataFrame with columns `['open','high','low','close','volume']` and a datetime index.
   - **Create `data/utils.py`**
     - Helper `validate_dataframe(df)` to ensure required columns exist.
     - Function `resample_to_daily(df, freq='1D')`.
-  - Add unit tests in `tests/test_data_loader.py`.
+  - Add unit tests in `tests/test_agent.py` (covers loader, utils, and error cases).
 
 - [ ] **Feature‑Builder Agent**
   - **Create `features/builder.py`**
     - Class `FeatureBuilder` with `__init__(self, cfg_path: str = None)`.
-    - Method `fit_transform(self, raw_df: pd.DataFrame) -> pd.DataFrame`.
+    - Method `fit_transform(self, raw_df: pd.DataFrame) → pd.DataFrame`.
     - Load indicator configuration from `configs/feature_cfg.yaml` (list of dicts: name, params).
     - Loop over config and call `getattr(raw_df.ta, name)(**params, append=True)`.
     - Drop rows with NaNs after the longest indicator warm‑up.
