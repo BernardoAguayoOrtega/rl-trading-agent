@@ -233,25 +233,16 @@ This addition keeps the original modular architecture intact: the generated feat
 
 ## TODO List – Build the System Step by Step (Detailed)
 
-### Research Orchestrator (new component)
-- [ ] Add a high‑level orchestrator module `research/orchestrator.py` that coordinates the full quant‑research cycle.
-  - Defines research cycles: data ingestion → feature search → LLM strategy generation → evaluation → result logging.
-  - Stores experiment metadata (timestamp, config snapshots, metrics) in a lightweight CSV log or a small SQLite DB.
-  - Provides a CLI (`python -m research.orchestrator run`) to launch end‑to‑end experiments and automatically invoke the appropriate sub‑components.
-  - Enables reproducibility by persisting the exact `feature_cfg.yaml`, `risk_cfg.yaml`, and generated strategy JSON for each run.
-
 ### Chunk 1 – Project Setup
-- [ ] Initialize repository & environment – git, venv, dependencies, .gitignore.
+- [x] Initialize repository & environment – git, venv, dependencies, .gitignore.
   - Create a new GitHub repo and push the initial commit.
   - Set up a Python virtual environment (`python -m venv .venv`).
   - Install required packages from `requirements.txt`.
   - Add a comprehensive `.gitignore` (venv, __pycache__, *.ipynb_checkpoints, data/*.csv, etc.).
-- [ ] Data Agent – `data/loader.py` & `data/utils.py` (already implemented).
+- [x] Data Agent – `data/loader.py` & `data/utils.py` (already implemented).
   - Verify loader works for multiple tickers and date ranges.
   - Add unit tests for CSV and API loading paths.
   - Document usage examples in the README.
-  - **Add data versioning**: cache raw data under `data/cache/` and include a simple version identifier in the filename.
-  - **Handle corporate actions** (splits, dividends) in a preprocessing step to avoid look‑ahead bias.
 
 ### Chunk 2 – Search‑Driven Core Pipeline
 
@@ -259,7 +250,6 @@ This addition keeps the original modular architecture intact: the generated feat
 - [ ] Implement `search/auto_engineer.py`.
   - Design a configuration schema for indicator search (list of possible TA functions, parameter ranges).
   - Implement a random‑search baseline and an Optuna sampler.
-  - **Add feature‑selection pruning**: compute collinearity (e.g., VIF) and drop highly correlated indicators before back‑testing.
   - Integrate with `FeatureBuilder` to generate a feature matrix for each trial.
   - Run a quick back‑test using a lightweight version of `ModularTradingEnv` (e.g., only equity tracking, no RL).
   - Log trial results (Sharpe, max‑DD) to a CSV for analysis.
@@ -269,30 +259,27 @@ This addition keeps the original modular architecture intact: the generated feat
   - Define a prompt template that describes the feature set and asks the LLM to suggest a strategy.
   - Use OpenAI's API (or a mock) to obtain the JSON response.
   - Validate the JSON against a Pydantic model (`StrategySpec`).
-  - **Add a sanity‑check step**: static analysis of the generated strategy code to ensure no look‑ahead bias, reasonable parameter ranges, and executable Python.
   - Convert the spec into a concrete `DynamicStrategy` class that inherits from `BaseStrategy`.
   - Add error handling for malformed LLM output.
 
 #### Chunk 2.3 – Optimiser
 - [ ] Implement `search/feature_strategy_search_agent.py` (or a thin wrapper).
-  - Set up an Optuna study with **multi‑objective** optimization: maximize Sharpe **and** minimize max‑DD (Pareto front or weighted scalarization).
+  - Set up an Optuna study with objectives: maximize Sharpe, minimize max‑DD.
   - In each trial, call `AutoFeatureEngine` → `FeatureBuilder` → `LLMStrategyGenerator` → fast back‑test.
-  - Store the best trial’s feature config and strategy spec **with a timestamped filename** (e.g., `feature_cfg_20250820_01.yaml`).
-  - Provide a CLI interface to specify number of trials, target metrics, random seed, and optional weighting between objectives.
+  - Store the best trial’s feature config and strategy spec.
+  - Provide a CLI interface to specify number of trials, target metrics, and random seed.
 
 #### Chunk 2.4 – PersistBest
 - [ ] Add helper `search/utils.py` (`save_best_config`).
   - Implement YAML serialization for the winning feature list.
   - Write the strategy JSON to a version‑controlled `strategies/specs/` folder.
   - Ensure the function is idempotent and creates backups of previous configs.
-  - **Maintain a config registry** (e.g., `configs/registry.csv`) that records each persisted config with its timestamp and performance metrics.
 
 #### Chunk 2.5 – RL Trainer (optional)
 - [ ] Use existing `training/train_ppo.py`.
   - Update the training script to read the latest `feature_cfg.yaml` and strategy spec.
   - Add a command‑line flag to skip training if only the search is desired.
   - Document how to resume training from a saved checkpoint.
-  - **Clarify training regime**: optionally train on the top‑N feature‑strategy combos returned by the optimiser.
 
 ### Chunk 3 – Supporting Components & Infrastructure
 
@@ -300,7 +287,6 @@ This addition keeps the original modular architecture intact: the generated feat
 - [ ] Plugin‑based implementation already in `features/builder.py`.
   - Write unit tests for each plugin (e.g., moving_average, rsi).
   - Add documentation on how to create new plugins.
-  - **Add property‑based tests** (using `hypothesis`) to verify that generated feature matrices never contain NaNs and preserve column alignment.
 
 #### Chunk 3.2 – Strategy Pool
 - [ ] Create abstract `strategies/base.py` and concrete strategies (`mean_reversion.py`, `momentum.py`, `mlp_strategy.py`).
@@ -320,14 +306,12 @@ This addition keeps the original modular architecture intact: the generated feat
   - Create thin wrapper classes that delegate to the core modules.
   - Ensure each sub‑agent has a single public method and is fully typed.
   - Write integration tests that chain all six agents in a mock environment.
-  - **Propagate a global random seed** through all agents to guarantee deterministic behaviour when needed.
 
 #### Chunk 3.5 – ModularTradingEnv
 - [ ] Implement `env/trading_env.py`.
   - Follow the Gymnasium `Env` API (`reset`, `step`, `render`).
   - Include `info` dict with debug fields (selected strategy, portfolio snapshot).
   - Add a simple deterministic mode for fast back‑testing during search.
-  - Document how the seed is set and how to achieve reproducible runs.
 
 #### Chunk 3.6 – Training Scripts
 - [ ] `training/train_ppo.py` (already present) and optional `training/optuna_search.py`.
@@ -340,14 +324,12 @@ This addition keeps the original modular architecture intact: the generated feat
   - Extend evaluator to accept a custom `ModularTradingEnv` instance.
   - Add CSV export of trade‑log and JSON export of metrics.
   - Write unit tests for metric calculations.
-  - **Add out‑of‑sample validation** within each evaluation to detect over‑fitting.
 
 #### Chunk 3.8 – Reporting Tools
 - [ ] `reporting/plots.py` and `reporting/reporter.py` (already present).
   - Create reusable Matplotlib style sheet for consistent visuals.
   - Add functions to export plots as PNG and SVG.
   - Ensure reporter can be called from CLI with paths to metrics and log.
-  - **Automate notebook sync**: provide a script (`scripts/sync_notebooks.py`) that regenerates notebook cells from the latest code snippets.
 
 #### Chunk 3.9 – Unit Tests
 - [ ] Ensure >80 % coverage for all new modules.
@@ -358,24 +340,20 @@ This addition keeps the original modular architecture intact: the generated feat
 - [ ] Update the five notebooks to reflect the new search‑driven workflow.
   - Include a notebook that runs `run_search.py` and visualises trial results.
   - Add explanatory markdown cells for each pipeline stage.
-  - **Link notebooks to the orchestrator** so they can be executed via `research.orchestrator` for reproducibility.
 
 #### Chunk 3.11 – End‑to‑End Demo
 - [ ] Write a shell script `demo.sh` that executes all steps sequentially.
   - Capture timings and resource usage.
-  - **Extend demo** to call the Research Orchestrator, automatically logging experiment metadata.
 
 #### Chunk 3.12 – Documentation & CI
 - [ ] Update README, add GitHub Actions workflow for linting, testing, and a quick training sanity check.
   - Create `.github/workflows/ci.yml` with jobs: lint (ruff/flake8), test (pytest), train‑sanity (short PPO run).
   - Add badges for build status and coverage.
-  - **Add a CI job** that runs the Research Orchestrator on a minimal dataset to ensure the full pipeline works.
 
 #### Chunk 3.13 – Optional Extensions
 - [ ] Live‑trading script, Dockerfile, Sphinx docs.
   - Implement `live/trade.py` that streams live data, builds observations, queries the saved policy, and sends orders via a broker API.
   - Write a minimal `Dockerfile` that installs dependencies and copies the repo.
   - Set up Sphinx with autodoc to generate API documentation.
-  - **Add a simulation‑in‑the‑loop stage** before live deployment: replay recent market data with realistic slippage and latency to validate the live‑trading script.
 
 Once each bullet is checked off, the repository will contain a fully‑automated, search‑driven feature and strategy pipeline together with optional RL training, ready for research and production use.
