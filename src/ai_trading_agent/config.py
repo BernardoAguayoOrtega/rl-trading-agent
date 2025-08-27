@@ -63,10 +63,9 @@ class DataConfig:
     # Yahoo Finance settings
     yf_auto_adjust: bool = True
     yf_prepost: bool = False
-    yf_threads: bool = True
     
     # Data validation
-    min_data_points: int = 252  # Minimum 1 year of data
+    min_data_points: int = 50  # Minimum 50 data points (about 2 months daily data)
 
 
 @dataclass
