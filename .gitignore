@@ -1,12 +1,8 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -20,59 +16,46 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
-# Virtual environment
-.venv/
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
 
 # Data files
-/data/*.csv
+*.csv
+*.pkl
+*.h5
+data/
+logs/
 
-# OS files
+# API Keys and Secrets
+.env
+*.key
+secrets/
+
+# MacOS
 .DS_Store
 
-# Logs
-*.log
-
-# Pytest cache
-.cache
-
-# VS Code settings
-.vscode/
-
-# PyCharm
-.idea/
-
-# Pytest
-.pytest_cache/
-
-# Coverage reports
-htmlcov/
-
-# Misc
-*.pyc
-*.pyo
-*.pyd
-*.pyd
-*.pyd
-
-# Environment variables
-.env
-
-# Poetry
-poetry.lock
-
-# Poetry
-poetry.toml
-
-# Poetry
-pyproject.toml
-
-# Poetry
+# Trading specific
+backtest_results/
+trading_logs/
+performance_reports/

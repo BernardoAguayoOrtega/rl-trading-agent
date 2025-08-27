@@ -1,0 +1,45 @@
+{
+  "openai": {
+    "model": "gpt-4",
+    "temperature": 0.1,
+    "max_tokens": 4000
+  },
+  "trading": {
+    "initial_capital": 100000.0,
+    "max_position_size": 0.2,
+    "stop_loss_pct": 0.02,
+    "take_profit_pct": 0.04,
+    "commission_rate": 0.001,
+    "slippage_rate": 0.0005,
+    "max_daily_trades": 10,
+    "max_portfolio_risk": 0.15,
+    "confidence_threshold": 0.7
+  },
+  "data": {
+    "default_symbol": "SPY",
+    "default_period": "2y",
+    "default_interval": "1d",
+    "yf_auto_adjust": true,
+    "yf_prepost": false,
+    "yf_threads": true,
+    "min_data_points": 252
+  },
+  "validation": {
+    "train_test_split": 0.7,
+    "walk_forward_periods": 10,
+    "monte_carlo_simulations": 1000,
+    "cross_validation_folds": 5,
+    "min_sharpe_ratio": 1.0,
+    "max_drawdown_threshold": 0.15,
+    "min_win_rate": 0.55
+  },
+  "ai": {
+    "confidence_calibration": true,
+    "learning_rate": 0.01,
+    "memory_length": 100,
+    "strategy_switching_threshold": 0.3,
+    "multi_timeframe_analysis": true,
+    "market_regime_detection": true,
+    "risk_assessment_enabled": true
+  }
+}

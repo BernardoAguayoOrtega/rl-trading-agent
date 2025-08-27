@@ -1,0 +1,30 @@
+[project]
+name = "ai-trading-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Bernardo Aguayo Ortega", email = "63122476+BernardoAguayoOrtega@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel>=6.30.1",
+    "jupyterlab>=4.4.6",
+    "matplotlib>=3.10.5",
+    "numpy>=2.3.2",
+    "openai>=1.102.0",
+    "pandas>=2.3.2",
+    "plotly>=6.3.0",
+    "scikit-learn>=1.7.1",
+    "scipy>=1.16.1",
+    "seaborn>=0.13.2",
+    "ta-lib>=0.6.6",
+    "yfinance>=0.2.65",
+]
+
+[project.scripts]
+ai-trading-agent = "ai_trading_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.8.8,<0.9.0"]
+build-backend = "uv_build"
