@@ -1,22 +1,29 @@
+#!/usr/bin/env python3
 """
-Phase 2 Testing - Intelligent Data Management
-============================================
+Phase 2 Testing Script - Data Pipeline & Technical Indicators
+============================================================
 
-Test suite for data acquisition, validation, and technical indicator integration.
+This script tests the intelligent data management and technical indicators
+implementation for the AI Trading Agent.
 """
 
+import os
 import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import warnings
 
 # Add src to path for testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+# Suppress warnings for cleaner test output
+warnings.filterwarnings('ignore')
+
 from ai_trading_agent.data_manager import IntelligentDataManager, DataValidationError
 from ai_trading_agent.indicators import TechnicalIndicatorFactory, MarketDataProcessor
-from ai_trading_agent.config import Config
+from ai_trading_agent.config import DataConfig
 
 
 def test_data_manager():

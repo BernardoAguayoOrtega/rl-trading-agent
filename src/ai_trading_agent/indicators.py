@@ -10,6 +10,10 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple
 import logging
+from datetime import datetime
+
+# Import required classes
+from .config import DataConfig
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,316 @@ class TechnicalIndicatorFactory:
             raise ValueError(f"Indicator {indicator_name} not found in registry")
             
         indicator_info = self.indicator_registry[indicator_name]
+        
+        # Check minimum data requirements
+        if len(data) < indicator_info['min_data_points']:
+            raise ValueError(f"Insufficient data for {indicator_name}: need {indicator_info['min_data_points']}, got {len(data)}")
+        
+        # Merge default parameters with custom ones
+        params = {**indicator_info['parameters'], **kwargs}
+        
+        # Create cache key
+        cache_key = f"{indicator_name}_{hash(str(sorted(params.items())))}"
+        
+        # Check cache
+        if cache_key in self.cache:
+            cached_result, cached_data_hash = self.cache[cache_key]
+            current_data_hash = hash(str(data.tail(100).values.tobytes()))  # Hash last 100 rows
+            if cached_data_hash == current_data_hash:
+                return cached_result
+        
+        # Calculate indicator
+        try:
+            result = indicator_info['function'](data, **params)
+            
+            # Cache result
+            current_data_hash = hash(str(data.tail(100).values.tobytes()))
+            self.cache[cache_key] = (result, current_data_hash)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate {indicator_name}: {e}")
+            raise
+    
+    def calculate_multiple_indicators(self, data: pd.DataFrame, indicators: List[str], **global_kwargs) -> pd.DataFrame:
+        """Calculate multiple indicators efficiently"""
+        result_data = data.copy()
+        
+        for indicator_name in indicators:
+            try:
+                indicator_result = self.calculate_indicator(data, indicator_name, **global_kwargs)
+                
+                # Merge results (align by index)
+                for col in indicator_result.columns:
+                    if col not in result_data.columns:
+                        result_data[col] = indicator_result[col]
+                        
+            except Exception as e:
+                logger.warning(f"Failed to calculate {indicator_name}: {e}")
+                continue
+        
+        return result_data
+    
+    def get_ai_ready_indicators(self, data: pd.DataFrame, symbol: str) -> Dict:
+        """Calculate key indicators and format for AI consumption"""
+        try:
+            # Calculate essential indicators
+            essential_indicators = ['sma', 'ema', 'rsi', 'macd', 'bb', 'atr']
+            indicator_data = self.calculate_multiple_indicators(data, essential_indicators)
+            
+            # Get latest values
+            latest = indicator_data.iloc[-1]
+            
+            # Format for AI
+            formatted_indicators = {
+                'sma_20': float(latest.get('s20', 0)),
+                'ema_20': float(latest.get('e20', 0)),
+                'rsi_14': float(latest.get('rsi14', 50)),
+                'macd_line': float(latest.get('macdL', 0)),
+                'macd_signal': float(latest.get('macdS', 0)),
+                'macd_histogram': float(latest.get('macdH', 0)),
+                'bb_upper': float(latest.get('bb_upper20', 0)),
+                'bb_middle': float(latest.get('bb_middle20', 0)),
+                'bb_lower': float(latest.get('bb_lower20', 0)),
+                'atr': float(latest.get('atr14', 0)),
+                'atr_percent': float(latest.get('atr%14', 0))
+            }
+            
+            # Add trend analysis
+            current_price = float(latest['Close'])
+            sma_20 = formatted_indicators['sma_20']
+            ema_20 = formatted_indicators['ema_20']
+            
+            formatted_indicators.update({
+                'price_vs_sma20': 'above' if current_price > sma_20 else 'below',
+                'price_vs_ema20': 'above' if current_price > ema_20 else 'below',
+                'rsi_signal': 'overbought' if formatted_indicators['rsi_14'] > 70 else 'oversold' if formatted_indicators['rsi_14'] < 30 else 'neutral',
+                'macd_signal_status': 'bullish' if formatted_indicators['macd_line'] > formatted_indicators['macd_signal'] else 'bearish',
+                'bb_position': 'upper' if current_price > formatted_indicators['bb_upper'] else 'lower' if current_price < formatted_indicators['bb_lower'] else 'middle'
+            })
+            
+            return formatted_indicators
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate AI-ready indicators for {symbol}: {e}")
+            return {}
+    
+    # ============= CORE INDICATOR IMPLEMENTATIONS =============
+    
+    def ocpSma(self, data: pd.DataFrame, periodo: int = 20, col: str = 'Close') -> pd.DataFrame:
+        """Simple Moving Average"""
+        result = data.copy()
+        sma_col = f's{periodo}'
+        result[sma_col] = data[col].rolling(window=periodo).mean()
+        return result
+    
+    def ocpExp(self, data: pd.DataFrame, periodo: int = 20, col: str = 'Close') -> pd.DataFrame:
+        """Exponential Moving Average"""
+        result = data.copy()
+        ema_col = f'e{periodo}'
+        result[ema_col] = data[col].ewm(span=periodo).mean()
+        return result
+    
+    def ocpRsi(self, data: pd.DataFrame, periodo: int = 14, col: str = 'Close') -> pd.DataFrame:
+        """Relative Strength Index"""
+        result = data.copy()
+        
+        # Calculate price changes
+        delta = data[col].diff()
+        
+        # Separate gains and losses
+        gains = delta.where(delta > 0, 0)
+        losses = -delta.where(delta < 0, 0)
+        
+        # Calculate rolling averages
+        avg_gains = gains.rolling(window=periodo).mean()
+        avg_losses = losses.rolling(window=periodo).mean()
+        
+        # Calculate RS and RSI
+        rs = avg_gains / avg_losses
+        rsi = 100 - (100 / (1 + rs))
+        
+        result[f'rsi{periodo}'] = rsi
+        return result
+    
+    def ocpMacd(self, data: pd.DataFrame, fast: int = 12, slow: int = 26, suavizado: int = 9, col: str = 'Close') -> pd.DataFrame:
+        """MACD (Moving Average Convergence Divergence)"""
+        result = data.copy()
+        
+        # Calculate EMAs
+        ema_fast = data[col].ewm(span=fast).mean()
+        ema_slow = data[col].ewm(span=slow).mean()
+        
+        # MACD line
+        macd_line = ema_fast - ema_slow
+        
+        # Signal line (EMA of MACD line)
+        signal_line = macd_line.ewm(span=suavizado).mean()
+        
+        # Histogram
+        histogram = macd_line - signal_line
+        
+        result['macdL'] = macd_line
+        result['macdS'] = signal_line
+        result['macdH'] = histogram
+        
+        return result
+    
+    def ocpBollingerBands(self, data: pd.DataFrame, periodo: int = 20, std_dev: float = 2, col: str = 'Close') -> pd.DataFrame:
+        """Bollinger Bands"""
+        result = data.copy()
+        
+        # Middle line (SMA)
+        sma = data[col].rolling(window=periodo).mean()
+        
+        # Standard deviation
+        std = data[col].rolling(window=periodo).std()
+        
+        # Upper and lower bands
+        upper_band = sma + (std * std_dev)
+        lower_band = sma - (std * std_dev)
+        
+        result[f'bb_upper{periodo}'] = upper_band
+        result[f'bb_middle{periodo}'] = sma
+        result[f'bb_lower{periodo}'] = lower_band
+        
+        return result
+    
+    def ocpAtr(self, data: pd.DataFrame, periodo: int = 14) -> pd.DataFrame:
+        """Average True Range"""
+        result = data.copy()
+        
+        # Calculate True Range
+        high_low = data['High'] - data['Low']
+        high_close_prev = np.abs(data['High'] - data['Close'].shift())
+        low_close_prev = np.abs(data['Low'] - data['Close'].shift())
+        
+        true_range = np.maximum(high_low, np.maximum(high_close_prev, low_close_prev))
+        
+        # ATR is the EMA of True Range
+        atr = true_range.ewm(span=periodo).mean()
+        
+        # ATR as percentage of price
+        atr_percent = (atr / data['Close']) * 100
+        
+        result[f'atr{periodo}'] = atr
+        result[f'atr%{periodo}'] = atr_percent
+        
+        return result
+    
+    def ocpVolumeSma(self, data: pd.DataFrame, periodo: int = 20) -> pd.DataFrame:
+        """Volume Simple Moving Average"""
+        result = data.copy()
+        volume_sma_col = f'volume_sma{periodo}'
+        result[volume_sma_col] = data['Volume'].rolling(window=periodo).mean()
+        return result
+
+
+class MarketDataProcessor:
+    """
+    High-level processor combining data management and technical indicators
+    for comprehensive market analysis
+    """
+    
+    def __init__(self, data_manager=None, data_config: Optional[DataConfig] = None):
+        """Initialize the market data processor"""
+        if data_manager is not None:
+            self.data_manager = data_manager
+        else:
+            # Import here to avoid circular imports
+            from .data_manager import IntelligentDataManager
+            self.data_manager = IntelligentDataManager(data_config)
+        
+        self.indicator_factory = TechnicalIndicatorFactory()
+        
+        logger.info("MarketDataProcessor initialized")
+    
+    def get_complete_market_analysis(self, symbol: str, period: str = None, interval: str = None) -> Dict:
+        """
+        Get complete market analysis including data and indicators
+        
+        Args:
+            symbol: Stock symbol
+            period: Data period
+            interval: Data interval
+            
+        Returns:
+            Dict: Complete market analysis for AI consumption
+        """
+        try:
+            # Get market data
+            market_data = self.data_manager.get_market_data(
+                symbol=symbol,
+                period=period,
+                interval=interval,
+                validate=True
+            )
+            
+            # Prepare basic data for AI
+            ai_data = self.data_manager.prepare_data_for_ai(market_data, symbol)
+            
+            # Calculate technical indicators
+            technical_indicators = self.indicator_factory.get_ai_ready_indicators(market_data, symbol)
+            
+            # Combine everything
+            complete_analysis = {
+                **ai_data,
+                'technical_indicators': technical_indicators,
+                'data_points': len(market_data),
+                'analysis_timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Complete market analysis generated for {symbol}")
+            return complete_analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to generate complete market analysis for {symbol}: {e}")
+            raise
+    
+    def get_multi_symbol_analysis(self, symbols: List[str], period: str = None, interval: str = None) -> Dict[str, Dict]:
+        """Get complete analysis for multiple symbols"""
+        results = {}
+        
+        for symbol in symbols:
+            try:
+                analysis = self.get_complete_market_analysis(symbol, period, interval)
+                results[symbol] = analysis
+            except Exception as e:
+                logger.error(f"Failed to analyze {symbol}: {e}")
+                results[symbol] = {'error': str(e)}
+        
+        return results
+    
+    def get_real_time_analysis(self, symbol: str, max_age_minutes: int = 5) -> Dict:
+        """Get real-time market analysis"""
+        try:
+            # Get real-time data
+            real_time_data = self.data_manager.get_real_time_data(symbol, max_age_minutes)
+            
+            if real_time_data.empty:
+                raise ValueError(f"No real-time data available for {symbol}")
+            
+            # Prepare for AI
+            ai_data = self.data_manager.prepare_data_for_ai(real_time_data, symbol)
+            
+            # Calculate indicators on available data
+            technical_indicators = self.indicator_factory.get_ai_ready_indicators(real_time_data, symbol)
+            
+            # Combine with real-time flag
+            analysis = {
+                **ai_data,
+                'technical_indicators': technical_indicators,
+                'is_real_time': True,
+                'data_age_minutes': max_age_minutes,
+                'analysis_timestamp': datetime.now().isoformat()
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to get real-time analysis for {symbol}: {e}")
+            raise
         
         # Merge default parameters with provided kwargs
         params = indicator_info['parameters'].copy()
@@ -319,138 +633,4 @@ class TechnicalIndicatorFactory:
         return df
 
 
-class MarketDataProcessor:
-    """
-    Advanced data processing for AI consumption
-    Combines market data with technical indicators
-    """
-    
-    def __init__(self):
-        self.indicator_factory = TechnicalIndicatorFactory()
-    
-    def process_for_ai_analysis(self, data: pd.DataFrame, symbol: str) -> Dict[str, Any]:
-        """
-        Process market data and indicators for AI analysis
-        
-        Args:
-            data: Market data DataFrame
-            symbol: Stock symbol
-            
-        Returns:
-            Dict: Comprehensive data package for AI
-        """
-        if data.empty:
-            raise ValueError(f"No data provided for {symbol}")
-        
-        try:
-            # Calculate technical indicators
-            data_with_indicators = self.indicator_factory.calculate_indicator_suite(data)[0]
-            
-            # Prepare basic market data
-            latest = data_with_indicators.iloc[-1]
-            previous = data_with_indicators.iloc[-2] if len(data_with_indicators) > 1 else latest
-            
-            # Price action analysis
-            price_change = latest['Close'] - previous['Close']
-            price_change_pct = (price_change / previous['Close']) * 100 if previous['Close'] != 0 else 0
-            
-            # Volume analysis
-            avg_volume = data['Volume'].tail(20).mean()
-            volume_ratio = latest['Volume'] / avg_volume if avg_volume > 0 else 1.0
-            
-            # Volatility measures
-            volatility_20 = data['Close'].pct_change().tail(20).std() * 100
-            
-            # Technical indicators for AI
-            technical_indicators = self.indicator_factory.prepare_indicators_for_ai(data_with_indicators, symbol)
-            
-            # Market structure analysis
-            market_structure = self._analyze_market_structure(data_with_indicators)
-            
-            return {
-                'symbol': symbol,
-                'timestamp': latest.name.strftime('%Y-%m-%d %H:%M:%S') if hasattr(latest.name, 'strftime') else str(latest.name),
-                'price_data': {
-                    'current_price': float(latest['Close']),
-                    'open': float(latest['Open']),
-                    'high': float(latest['High']),
-                    'low': float(latest['Low']),
-                    'price_change': float(price_change),
-                    'price_change_pct': float(price_change_pct)
-                },
-                'volume_data': {
-                    'current_volume': int(latest['Volume']),
-                    'avg_volume_20': float(avg_volume),
-                    'volume_ratio': float(volume_ratio)
-                },
-                'volatility_data': {
-                    'volatility_20': float(volatility_20) if not np.isnan(volatility_20) else 0.0,
-                    'atr_percent': technical_indicators.get('ATR_Percent', 0.0)
-                },
-                'technical_indicators': technical_indicators,
-                'market_structure': market_structure,
-                'data_quality': {
-                    'total_records': len(data),
-                    'indicator_coverage': len(technical_indicators),
-                    'data_completeness': (1 - data.isnull().sum().sum() / (len(data) * len(data.columns))) * 100
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to process data for AI analysis: {e}")
-            raise
-    
-    def _analyze_market_structure(self, data: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze market structure and trends"""
-        try:
-            # Trend analysis using multiple SMAs
-            current_price = data['Close'].iloc[-1]
-            
-            trend_signals = {}
-            if 's20' in data.columns:
-                trend_signals['sma20'] = 'bullish' if current_price > data['s20'].iloc[-1] else 'bearish'
-            if 's50' in data.columns:
-                trend_signals['sma50'] = 'bullish' if current_price > data['s50'].iloc[-1] else 'bearish'
-            if 's200' in data.columns:
-                trend_signals['sma200'] = 'bullish' if current_price > data['s200'].iloc[-1] else 'bearish'
-            
-            # Overall trend strength
-            bullish_signals = sum(1 for signal in trend_signals.values() if signal == 'bullish')
-            trend_strength = bullish_signals / len(trend_signals) if trend_signals else 0.5
-            
-            # Momentum analysis
-            momentum = 'neutral'
-            if 'rsi14' in data.columns:
-                rsi = data['rsi14'].iloc[-1]
-                if rsi > 70:
-                    momentum = 'overbought'
-                elif rsi < 30:
-                    momentum = 'oversold'
-                elif rsi > 50:
-                    momentum = 'bullish'
-                else:
-                    momentum = 'bearish'
-            
-            # Support/Resistance levels (simplified)
-            recent_highs = data['High'].tail(20).max()
-            recent_lows = data['Low'].tail(20).min()
-            
-            return {
-                'trend_signals': trend_signals,
-                'trend_strength': float(trend_strength),
-                'momentum': momentum,
-                'support_level': float(recent_lows),
-                'resistance_level': float(recent_highs),
-                'price_position': float((current_price - recent_lows) / (recent_highs - recent_lows)) if recent_highs != recent_lows else 0.5
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to analyze market structure: {e}")
-            return {
-                'trend_signals': {},
-                'trend_strength': 0.5,
-                'momentum': 'neutral',
-                'support_level': 0.0,
-                'resistance_level': 0.0,
-                'price_position': 0.5
-            }
+

@@ -41,15 +41,3 @@ __all__ = [
     "MarketDataProcessor",
     "main"
 ]
-
-__version__ = "0.1.0"
-__author__ = "Bernardo Aguayo Ortega"
-
-def main() -> None:
-    """Main entry point for the AI trading agent"""
-    print(f"🚀 AI Trading Agent v{__version__}")
-    print("Ready to revolutionize your trading with AI!")
-    print("\nNext steps:")
-    print("1. Set up your OpenAI API key")
-    print("2. Configure data sources")
-    print("3. Initialize the trading environment")
