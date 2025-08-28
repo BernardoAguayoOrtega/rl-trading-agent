@@ -359,7 +359,7 @@ class MarketDataProcessor:
                 **ai_data,
                 'technical_indicators': technical_indicators,
                 'data_points': len(market_data),
-                'analysis_timestamp': datetime.now().isoformat()
+                'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
             logger.info(f"Complete market analysis generated for {symbol}")
@@ -404,7 +404,7 @@ class MarketDataProcessor:
                 'technical_indicators': technical_indicators,
                 'is_real_time': True,
                 'data_age_minutes': max_age_minutes,
-                'analysis_timestamp': datetime.now().isoformat()
+                'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
             
             return analysis

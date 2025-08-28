@@ -426,6 +426,17 @@ class IntelligentDataManager:
         current_time = datetime.now()
         market_hours = "open" if 9 <= current_time.hour <= 16 else "closed"
         
+        # Serialize data_quality metrics to avoid datetime serialization issues
+        data_quality = self.data_quality_metrics.get(symbol, {})
+        serializable_quality = {}
+        
+        if data_quality:
+            serializable_quality = {
+                'record_count': data_quality.get('record_count', 0),
+                'completeness': data_quality.get('completeness', {})
+                # Skip datetime objects that would cause JSON serialization issues
+            }
+        
         return {
             'symbol': symbol,
             'current_price': float(latest['Close']),
@@ -435,7 +446,7 @@ class IntelligentDataManager:
             'volatility': float(volatility) if not np.isnan(volatility) else 0.0,
             'trend': trend,
             'market_hours': market_hours,
-            'data_quality': self.data_quality_metrics.get(symbol, {}),
+            'data_quality': serializable_quality,
             'timestamp': latest.name.strftime('%Y-%m-%d %H:%M:%S') if hasattr(latest.name, 'strftime') else str(latest.name)
         }
     
